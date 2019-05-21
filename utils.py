@@ -9,7 +9,7 @@ from scipy.signal import butter, detrend, filtfilt
 from scipy.stats import zscore
 
 
-def loadData(filename, path = None, get_params = False, param_path = None, subject_id = None):
+def loadData(filename, path = None, get_params = False, param_file = None, subject_id = None):
     """
     Loads the data (and the corresponding history length and delay if get_params is True)
 
@@ -17,7 +17,7 @@ def loadData(filename, path = None, get_params = False, param_path = None, subje
         filename -- Name (and path) of the data file to be loaded
         path -- Location of the file, or None (if the filename argument already contains the path)
         get_params -- If True, load the history length and delay corresponding to the file (found by maximising AIS)
-        param_path
+        param_file -- File containing the params for history length and delay
         subject_id -- Used for the GRP data. Selects which subject's data to load
 
     Output:
@@ -43,9 +43,7 @@ def loadData(filename, path = None, get_params = False, param_path = None, subje
             data = data[:,:,subject_id]
             df = pd.DataFrame(data)
     if get_params:
-        assert param_path is not None, "Need to provide a path where parameters are stored"
-        # eg param_path = Results/AIS Local - Individual Parameters/idx/
-        param_file = os.path.join(param_path, '{}.csv'.format(basename(filename)))
+        assert param_file is not None, "Need to provide the parameters file to load it"
         param_df = pd.read_csv(param_file, header = None)
         return df, param_df
     return df

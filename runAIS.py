@@ -1,10 +1,9 @@
-import jpype
-import utils
-import numpy as np
-import pandas as pd
 import os
 import sys
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import utils
 
 history_lengths = range(1, 6)
 delays = range(1, 2)
@@ -28,7 +27,7 @@ def computeAIS(k, tau, acl, data, calc, compute_local = False, compute_p = False
         acl -- Auto correlation length, used to set the dynamic correlation exclusion property
         data -- 1D Numpy array
         calc -- The JIDT calculator
-        compute_local -- If True, the local AIS is returned instead of the expectation
+        compute_local -- If True, the local AIS is returned instead of the average
         compute_p  -- If True, the p value of the average AIS
         number_of_surrogates
     
@@ -104,16 +103,16 @@ def getLocalsForAllRegions(data, print_max_idx = True, parameters = None, comput
             results[region], p_values[region] = computeAIS(history_lengths[p[0]], delays[p[1]], acls[region], data[region], calc, compute_local = True, compute_p = compute_p)
     return results, all_max_idx, p_values
 
-def getAverageParametersAcrossPatients(path, extension, **preprocessing_params):
+def getAverageParametersAcrossPatients(data_path, extension, **preprocessing_params):
     """
     Finds the parameters for history length and delay corresponding to the maximum average AIS over the population
 
     Arguments:
-        path -- 
+        data_path -- 
         extension -- 
         preprocessing_params -- Includes sampling_rate / sampling_interval, apply_global_mean_removal, trim_start, trim_end
     """
-    files = utils.getAllFiles(path, extension)
+    files = utils.getAllFiles(data_path, extension)
     ais_values = {}
     for k, file in enumerate(files):
         df = utils.loadData(file)
@@ -152,50 +151,57 @@ if __name__ == "__main__":
 
     i = int(sys.argv[1])
 
-    def run_individual_parameters(i, path, extension, save_folder, GRP = False, **preprocessing_params):
+    def run_individual_parameters(i, data_path, extension, save_folder, GRP = False, compute_p = True, **preprocessing_params):
         """
         Arguments:
             GRP -- True if processing the GRP data
         """
-        files = utils.getAllFiles(path, extension)
+        files = utils.getAllFiles(data_path, extension)
         if GRP:
             file = files[0]
+            filename = '{:02}'.format(i)    # Save the results by the subjects number
+            subject_id = i
         else:
             file = files[i]
+            filename = utils.basename(file)
+            subject_id = None
         os.makedirs("Results/{}/AIS/idx".format(save_folder), exist_ok = True)
         os.makedirs("Results/{}/AIS/p_values".format(save_folder), exist_ok = True)
         
-        print("Processing", i, ":", file)
-        if os.path.exists('Results/{}/AIS/p_values/{}.csv'.format(save_folder, utils.basename(file))):
+
+        print("Processing", i, ":", filename)
+        if os.path.exists('Results/{}/AIS/p_values/{}.csv'.format(save_folder, filename)):
             exit()
-        if GRP:
-            df = utils.loadData(file, subject_id = i)
-        else:
-            df = utils.loadData(file)
+        
+        df = utils.loadData(file, subject_id = subject_id)
         data = utils.preprocess(df, **preprocessing_params)
-        results, all_max_idx, p_values = getLocalsForAllRegions(data, print_max_idx = False, compute_p = True)
+        results, all_max_idx, p_values = getLocalsForAllRegions(data, print_max_idx = False, compute_p = compute_p)
         # Add back the trimmed sections
         padding = ((0,0), (preprocessing_params.get('trim_start', 0), preprocessing_params.get('trim_end', 0)))
         results = np.pad(results, padding, mode = 'constant', constant_values = 0)
 
-        if GRP:
-            file = '{:02}'.format(i)    # Save the results by the subjects number
-        pd.DataFrame(results).to_csv('Results/{}/AIS/{}_AIS.csv'.format(save_folder, utils.basename(file)), index = None, header = None)
-        pd.DataFrame(all_max_idx.astype(int)).to_csv('Results/{}/AIS/idx/{}.csv'.format(save_folder, utils.basename(file)), index = None, header = None)
-        pd.DataFrame(p_values).to_csv('Results/{}/AIS/p_values/{}.csv'.format(save_folder, utils.basename(file)), index = None, header = None)
-        utils.plotHeatmap(results, divergent = True)
+        pd.DataFrame(results).to_csv('Results/{}/AIS/{}_AIS.csv'.format(save_folder, filename), index = None, header = None)
+        pd.DataFrame(all_max_idx.astype(int)).to_csv('Results/{}/AIS/idx/{}.csv'.format(save_folder, filename), index = None, header = None)
+        pd.DataFrame(p_values).to_csv('Results/{}/AIS/p_values/{}.csv'.format(save_folder, filename), index = None, header = None)
+        try:
+            utils.plotHeatmap(results, divergent = True)
+        except:
+            pass
 
-    # HCP
-    run_individual_parameters(i, path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP',
-                                sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25)
+    # # HCP
+    # run_individual_parameters(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP',
+    #                              sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False)
 
+    # ATX
+    run_individual_parameters(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX',
+                                 sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = True)
 
     ### Population parameters
     # os.makedirs("Results/AIS Local - Population Parameters/p_values", exist_ok = True)
 #    if os.path.exists('Results/Population all_max_idx.csv'):
 #        all_max_idx = pd.read_csv('Results/Population all_max_idx.csv', header = None).values
 #    else:
-#        all_max_idx = getAverageParametersAcrossPatients(path = '../Data', extension = '.tsv', sampling_rate = 1.3, trim_start = 50, trim_end = 25)
+#        all_max_idx = getAverageParametersAcrossPatients(data_path = '../Data', extension = '.tsv', sampling_rate = 1.3, trim_start = 50, trim_end = 25)
 #        pd.DataFrame(all_max_idx.astype(int)).to_csv('Results/Population all_max_idx.csv', index = None, header = None)
 #    # for i, file in enumerate(utils.getAllFiles()):
 #    # if os.path.exists('Results/AIS Local - Population Parameters/{}_AIS.csv'.format(file.split('.')[0])):
@@ -206,5 +212,3 @@ if __name__ == "__main__":
 #    pd.DataFrame(results).to_csv('Results/AIS Local - Population Parameters/{}_AIS.csv'.format(utils.basename(file)), index = None, header = None)
 #    pd.DataFrame(p_values).to_csv('Results/AIS Local - Population Parameters/p_values/{}.csv'.format(utils.basename(file)), index = None, header = None)
 #    # utils.plotHeatmap(results, divergent = True)
-
-
