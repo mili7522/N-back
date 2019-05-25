@@ -60,7 +60,7 @@ def getLocalsForRegion(data, source_idx, target_idx, param_df, compute_p = False
     
     history_length, delay = param_df.iloc[target_idx] + 1  # idx starts from 0, while parameters start from 1
     
-    acl = utils.acl(source_data)
+    acl = max(utils.acl(source_data), utils.acl(target_data))  # Take the larger value from the source and target
 
     result, p = computeTE(history_length, delay, acl, source_data, target_data, calc, compute_local = True, compute_p = compute_p)
     return result, p
@@ -166,9 +166,9 @@ if __name__ == "__main__":
 
 
     # HCP
-    run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
-           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False, compress = True)
+    # run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
+    #         sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False, compress = False)
 
-    # # ATX
-    # run(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
-    #        sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = True)
+    # ATX
+    run(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
+           sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = False, compress = False)
