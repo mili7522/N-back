@@ -55,8 +55,7 @@ if __name__ == "__main__":
         result, p = getLocalsForRegion(data, region_idx = region_idx, param_df = param_df, compute_p = False)
         utils.plotTimeseries(result)
 
-    # i = int(sys.argv[1])
-    i = 0
+    i = int(sys.argv[1])
 
     def run_individual_parameters(i, data_path, extension, save_folder, GRP = False, compute_p = True, **preprocessing_params):
         """
