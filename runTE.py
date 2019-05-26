@@ -65,7 +65,8 @@ def getLocalsForRegion(data, source_idx, target_idx, param_df, compute_p = False
     result, p = computeTE(history_length, delay, acl, source_data, target_data, calc, compute_local = True, compute_p = compute_p)
     return result, p
 
-def getLocalsForAllRegions(data, param_df, compute_p = False, print_every = 50):
+def getLocalsForAllRegions(data, param_df, compute_p = False, print_every = 50, save_every = 20, saver = None,
+                           results = None, p_values = None, idx_values = None):
     """
     Calculates the local TE for all regions, by calling getLocalsForRegion
 
@@ -74,54 +75,98 @@ def getLocalsForAllRegions(data, param_df, compute_p = False, print_every = 50):
         param_df
         compute_p
         print_every -- None, or Int giving the number of regions to calculate before printing an update of the progress
+        save_every -- None, or Int giving the number of regions to calculate before saving the current state of the results
+        saver -- TEResultSaver object, used to save the intermediate results
+        results -- Loaded results from previous run
+        p_values -- Loaded p_values from previous run
+        idx_values -- Tuple of the last (source_idx, target_idx) of the saved results from previous run
     """
     regions, timepoints = data.shape
-    results = np.zeros((regions, regions, timepoints))
-    p_values = np.zeros((regions, regions))
-    for source_idx in range(regions):
+    if idx_values is None:
+        starting_source_idx, starting_target_idx = 0, 0
+        results = np.zeros((regions, regions, timepoints))
+        p_values = np.zeros((regions, regions))
+    else:
+        starting_source_idx, starting_target_idx = idx_values
+        assert results is not None and p_values is not None
+    for source_idx in range(starting_source_idx, regions):
         for target_idx in range(regions):
+            if source_idx == starting_source_idx and target_idx < starting_target_idx:
+                continue
             if source_idx == target_idx:
                 results[source_idx, target_idx] = np.nan
             else:
                 if print_every is not None and (target_idx % print_every == 0) :
                     print(source_idx, "->", target_idx)
                 results[source_idx, target_idx], p_values[source_idx, target_idx] = getLocalsForRegion(data, source_idx, target_idx, param_df, compute_p = compute_p)
+                if save_every is not None and saver is not None and (target_idx % save_every == 0):
+                    saver.save_intermediate_result(results, p_values, (source_idx, target_idx + 1))
     return results, p_values
 
-def saveTEResults(results, p_values, filename, save_folder, raw_save_root = "/scratch/InfoDynFuncStruct/Mike/N-back/",
-                  padding = ((0,0), (0,0)), compress = False):
-    """
-    Saves the TE results - the raw array of shape (source_region, target_region, time) as well as the source and target TE to each region
-
-    Arguments:
-        results -- Numpy array containing the raw TE results
-        p_values -- 
-        filename -- Name of the files to be saved
-        save_folder
-        raw_save_root -- Root folder to save the raw TE results
-        padding = Tuple of tuples containing the number of spaces to pad the TE results at the start and end of each dimension
-    """
-    os.makedirs(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values".format(save_folder)), exist_ok = True)
-    os.makedirs("Results/{}/TE/In-Target".format(save_folder), exist_ok = True)
-    os.makedirs("Results/{}/TE/Out-Source".format(save_folder), exist_ok = True)
-
-    if compress:
-        np.savez_compressed(os.path.join(raw_save_root, "Results/{}/TE/raw/{}.npz".format(save_folder, filename)), results = results)
-        np.savez_compressed(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}.npz".format(save_folder, filename)), p_values = p_values)
-    else:
-        np.save(os.path.join(raw_save_root, "Results/{}/TE/raw/{}.npy".format(save_folder, filename)), results)
-        np.save(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}.npy".format(save_folder, filename)), p_values)
+class TEResultSaver:
+    def __init__(self, filename, save_folder, raw_save_root = "/scratch/InfoDynFuncStruct/Mike/N-back/"):
+        """
+        Arguments:
+            filename -- Name of the files to be saved
+            save_folder
+            raw_save_root -- Root folder to save the raw TE results
+        """
+        self.filename = filename
+        self.save_folder = save_folder
+        self.raw_save_root = raw_save_root
+        
+        os.makedirs(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values".format(save_folder)), exist_ok = True)
+        os.makedirs("Results/{}/TE/In-Target".format(save_folder), exist_ok = True)
+        os.makedirs("Results/{}/TE/Out-Source".format(save_folder), exist_ok = True)
     
-    target_te = np.nanmean(results, axis = 0)  # Average across all sources
-    source_te = np.nanmean(results, axis = 1)  # Average across all targets
+    def save_intermediate_result(self, results, p_values, idx_values):
+        """
+        Arguments:
+            idx_values -- Tuple of (source_idx, target_idx) for the last processed source and target idx
+        """
+        self.save_raw(results, p_values, compress = False)
+        with open(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(self.save_folder, self.filename)), 'w') as f:
+            f.write(str(idx_values[0]) + "," + str(idx_values[1]))
 
-    # Add back the trimmed sections
-    target_te = np.pad(target_te, padding, mode = 'constant', constant_values = 0)
-    source_te = np.pad(source_te, padding, mode = 'constant', constant_values = 0)
+    def save_final_result(self, results, p_values, padding = ((0,0), (0,0)), compress = False):
+        """
+        Saves the TE results - the raw array of shape (source_region, target_region, time) as well as the source and target TE to each region
+        Arguments:
+            results -- Numpy array containing the raw TE results
+            p_values -- 
+            padding -- Tuple of tuples containing the number of spaces to pad the TE results at the start and end of each dimension
+            compress -- If True, save the raw results as a npz format instead of npy
+        """
+        self.save_raw(results, p_values, compress)
 
-    pd.DataFrame(target_te).to_csv('Results/{}/TE/In-Target/{}.csv'.format(save_folder, filename), index = None, header = None)
-    pd.DataFrame(source_te).to_csv('Results/{}/TE/Out-Source/{}.csv'.format(save_folder, filename), index = None, header = None)
+        target_te = np.nanmean(results, axis = 0)  # Average across all sources
+        source_te = np.nanmean(results, axis = 1)  # Average across all targets
 
+        # Add back the trimmed sections
+        target_te = np.pad(target_te, padding, mode = 'constant', constant_values = 0)
+        source_te = np.pad(source_te, padding, mode = 'constant', constant_values = 0)
+
+        pd.DataFrame(target_te).to_csv('Results/{}/TE/In-Target/{}.csv'.format(self.save_folder, self.filename), index = None, header = None)
+        pd.DataFrame(source_te).to_csv('Results/{}/TE/Out-Source/{}.csv'.format(self.save_folder, self.filename), index = None, header = None)
+        
+        # Clean up intermediate save files
+        if compress:
+            os.remove(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}.npy".format(self.save_folder, self.filename)))
+            os.remove(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}.npy".format(self.save_folder, self.filename)))
+        os.remove(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(self.save_folder, self.filename)))
+
+    def save_raw(self, results, p_values, compress):
+        if compress:
+            np.savez_compressed(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}.npz".format(self.save_folder, self.filename)), results = results)
+            np.savez_compressed(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}.npz".format(self.save_folder, self.filename)), p_values = p_values)
+        else:
+            # Save temp file first then rename, in case the process gets killed during the save
+            np.save(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_temp.npy".format(self.save_folder, self.filename)), results)
+            np.save(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}_temp.npy".format(self.save_folder, self.filename)), p_values)
+            os.replace(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_temp.npy".format(self.save_folder, self.filename)),
+                       os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}.npy".format(self.save_folder, self.filename)))
+            os.replace(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}_temp.npy".format(self.save_folder, self.filename)),
+                       os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}.npy".format(self.save_folder, self.filename)))
 
 if __name__ == "__main__":
     def test_for_one_pair():
@@ -153,22 +198,32 @@ if __name__ == "__main__":
             subject_id = None
         
         print("Processing", i, ":", filename)
-        if glob.glob(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}.np*".format(save_folder, filename))):  # Check both compressed and uncompressed
-            exit()
+        if os.path.isfile(os.path.join(raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(save_folder, filename))):
+            # Load previous results
+            results = np.load(os.path.join(raw_save_root, "Results/{}/TE/raw/{}.npy".format(save_folder, filename)))
+            p_values = np.load(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}.npy".format(save_folder, filename)))
+            with open(os.path.join(raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(save_folder, filename)), 'r') as f:
+                idx_values = f.readline()
+            idx_values = map(int,idx_values.split(','))
+        else:
+            results, p_values, idx_values = None, None, None
+            if glob.glob(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}.np*".format(save_folder, filename))):  # Check both compressed and uncompressed
+                exit()
         param_file = 'Results/{}/AIS/idx/{}.csv'.format(save_folder, filename)
         df, param_df = utils.loadData(file, get_params = True, param_file = param_file, subject_id = subject_id)
         data = utils.preprocess(df, **preprocessing_params)
-        results, p_values = getLocalsForAllRegions(data, param_df, compute_p = compute_p)
+        saver = TEResultSaver(filename, save_folder, raw_save_root)
+        results, p_values = getLocalsForAllRegions(data, param_df, compute_p = compute_p, saver = saver, results = results, p_values = p_values, idx_values = idx_values)
 
         # Add back the trimmed sections
         padding = ((0,0), (preprocessing_params.get('trim_start', 0), preprocessing_params.get('trim_end', 0)))
-        saveTEResults(results, p_values, filename, save_folder, raw_save_root = raw_save_root, padding = padding, compress = compress)
+        saver.save_final_result(results, p_values, padding = padding, compress = compress)
 
 
     # HCP
-    # run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
-    #         sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False, compress = False)
+    run(i, data_path = '../Data', extension = '.tsv', save_folder = 'HCP', raw_save_root = '/media/mike/Files/Data and Results/N-back',
+           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False, compress = True)
 
     # ATX
-    run(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
-           sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = False, compress = False)
+    # run(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
+    #        sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = False, compress = False)
