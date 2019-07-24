@@ -6,7 +6,8 @@ import pandas as pd
 import utils
 
 
-calc = utils.startCalc(measure = 'te', estimator = 'ksg')
+# calc = utils.startCalc(measure = 'te', estimator = 'ksg')
+calc = utils.startCalc(measure = 'te', estimator = 'gaussian')
 
 def computeTE(k, tau, acl, source_data, target_data, calc, source_history_length = 1,
               source_delay = 1, source_target_delay = 1,
@@ -30,6 +31,7 @@ def computeTE(k, tau, acl, source_data, target_data, calc, source_history_length
         p -- p value. Returned if compute_p is true
     """
     calc.initialise(k, tau, source_history_length, source_delay, source_target_delay)
+    calc.setProperty( 'BIAS_CORRECTION', 'true' )
     calc.setProperty("DYN_CORR_EXCL", str(acl))
     calc.setObservations(source_data, target_data)
     if compute_p:
@@ -182,10 +184,11 @@ if __name__ == "__main__":
     i = int(sys.argv[1])
 
     def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynFuncStruct/Mike/N-back/", GRP = False,
-            compute_p = True, compress = False, **preprocessing_params):
+            compute_p = True, compress = False, set_k_to_0 = False, **preprocessing_params):
         """
         Arguments:
             GRP -- True if processing the GRP data
+            set_k_to_0 -- If True, skip loading of k and l parameters, instead initialising the DataFrame to -1 (so it gets set to 0 when one is added)
         """
         files = utils.getAllFiles(data_path, extension)
         if GRP:
@@ -208,9 +211,14 @@ if __name__ == "__main__":
         else:
             results, p_values, idx_values = None, None, None
             if glob.glob(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}.np*".format(save_folder, filename))):  # Check both compressed and uncompressed
+                print("Result already present")
                 exit()
         param_file = 'Results/{}/AIS/idx/{}.csv'.format(save_folder, filename)
-        df, param_df = utils.loadData(file, get_params = True, param_file = param_file, subject_id = subject_id)
+        if set_k_to_0:
+            df = utils.loadData(file, get_params = False, subject_id = subject_id)
+            param_df = pd.DataFrame( np.zeros((len(df), 2), dtype = int) - 1 )
+        else:
+            df, param_df = utils.loadData(file, get_params = True, param_file = param_file, subject_id = subject_id)
         data = utils.preprocess(df, **preprocessing_params)
         saver = TEResultSaver(filename, save_folder, raw_save_root)
         results, p_values = getLocalsForAllRegions(data, param_df, compute_p = compute_p, saver = saver, results = results, p_values = p_values, idx_values = idx_values)
@@ -221,9 +229,25 @@ if __name__ == "__main__":
 
 
     # HCP
-    run(i, data_path = '../Data', extension = '.tsv', save_folder = 'HCP', raw_save_root = '/media/mike/Files/Data and Results/N-back',
-           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False, compress = True)
+    # run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
+    #        sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = True, compress = False)
 
     # ATX
     # run(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX', #raw_save_root = '/media/mike/Files/Data and Results/N-back',
-    #        sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = False, compress = False)
+    #        sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = True, compress = False)
+
+    # HCP -- no global mean removal
+    # run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_no-mean-removal',
+    #        sampling_rate = 1.3, apply_global_mean_removal = False, trim_start = 50, trim_end = 25, compute_p = True, compress = False)
+    
+    # HCP -- using linear gaussian estimator
+    run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_gaussian', # raw_save_root = '/media/mike/Files/Data and Results/N-back',
+           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = True, compress = False)
+    
+    # HCP -- time-lagged MI (gaussian)
+    run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_MI_gaussian', # raw_save_root = '/media/mike/Files/Data and Results/N-back',
+           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, set_k_to_0 = True, compute_p = True, compress = False)
+
+    # HCP -- time-lagged MI (KSG)
+    # run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_MI_KSG', # raw_save_root = '/media/mike/Files/Data and Results/N-back',
+    #        sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, set_k_to_0 = True, compute_p = True, compress = False)

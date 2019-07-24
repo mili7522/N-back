@@ -8,7 +8,8 @@ import utils
 history_lengths = range(1, 6)
 delays = range(1, 2)
 
-calc = utils.startCalc(measure = 'ais', estimator = 'ksg')
+# calc = utils.startCalc(measure = 'ais', estimator = 'ksg')
+calc = utils.startCalc(measure = 'ais', estimator = 'gaussian')
 
 def plotAISAcrossParams(ais_values):
     plt.imshow(ais_values, extent = (0.5, len(delays)+0.5, len(history_lengths)+0.5, 0.5))
@@ -38,6 +39,7 @@ def computeAIS(k, tau, acl, data, calc, compute_local = False, compute_p = False
     calc.setProperty("k_HISTORY", str(k))
     calc.setProperty("tau", str(tau))
     calc.setProperty('DYN_CORR_EXCL', str(acl))
+    calc.setProperty( 'BIAS_CORRECTION', 'true' )
     calc.setObservations(data)
     if compute_p:
         measDist = calc.computeSignificance(number_of_surrogates)
@@ -188,13 +190,21 @@ if __name__ == "__main__":
         except:
             pass
 
-    # # HCP
+    # HCP
     # run_individual_parameters(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP',
     #                              sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False)
 
     # ATX
-    run_individual_parameters(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX',
-                                 sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = True)
+    # run_individual_parameters(i, data_path = 'Data/ATX_data', extension = '.csv', save_folder = 'ATX',
+    #                              sampling_rate = 1, apply_global_mean_removal = True, trim_start = 25, trim_end = 25, compute_p = True)
+    
+    # HCP -- no global mean removal
+    # run_individual_parameters(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_no-mean-removal',
+    #                              sampling_rate = 1.3, apply_global_mean_removal = False, trim_start = 50, trim_end = 25, compute_p = False)
+
+    # HCP - using linear gaussian estimator
+    run_individual_parameters(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_gaussian',
+                                 sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = True)
 
     ### Population parameters
     # os.makedirs("Results/AIS Local - Population Parameters/p_values", exist_ok = True)

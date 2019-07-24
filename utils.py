@@ -214,9 +214,17 @@ def startCalc(measure = 'ais', estimator = 'ksg'):
     if measure.lower() == 'ais':
         if estimator.lower() == 'ksg':
             calcClass = jpype.JPackage("infodynamics.measures.continuous.kraskov").ActiveInfoStorageCalculatorKraskov
+            print("Starting the KSG AIS calculator")
+        elif estimator.lower() == 'gaussian':
+            calcClass = jpype.JPackage("infodynamics.measures.continuous.gaussian").ActiveInfoStorageCalculatorGaussian
+            print("Starting the Gaussian AIS calculator")
     elif measure.lower() == 'te':
         if estimator.lower() == 'ksg':
             calcClass = jpype.JPackage("infodynamics.measures.continuous.kraskov").TransferEntropyCalculatorKraskov
+            print("Starting the KSG TE calculator")
+        elif estimator.lower() == 'gaussian':
+            calcClass = jpype.JPackage("infodynamics.measures.continuous.gaussian").TransferEntropyCalculatorGaussian
+            print("Starting the Gaussian TE calculator")
     calc = calcClass()
     return calc
 
