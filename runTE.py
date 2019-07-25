@@ -242,11 +242,11 @@ if __name__ == "__main__":
     
     # HCP -- using linear gaussian estimator
     run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_gaussian', # raw_save_root = '/media/mike/Files/Data and Results/N-back',
-           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = True, compress = False)
+           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, compute_p = False, compress = False)
     
     # HCP -- time-lagged MI (gaussian)
     run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_MI_gaussian', # raw_save_root = '/media/mike/Files/Data and Results/N-back',
-           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, set_k_to_0 = True, compute_p = True, compress = False)
+           sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25, set_k_to_0 = True, compute_p = False, compress = False)
 
     # HCP -- time-lagged MI (KSG)
     # run(i, data_path = 'Data/HCP', extension = '.tsv', save_folder = 'HCP_MI_KSG', # raw_save_root = '/media/mike/Files/Data and Results/N-back',
