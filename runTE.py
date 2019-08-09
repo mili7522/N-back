@@ -42,9 +42,9 @@ def computeTE(k, tau, acl, source_data, target_data, calc, source_history_length
         TE -- Either locals or average
         p -- p value. Returned if compute_p is true, else None is returned
     """
-    calc.initialise(k, tau, source_history_length, source_delay, source_target_delay)
     calc.setProperty( 'BIAS_CORRECTION', 'true' )
     calc.setProperty("DYN_CORR_EXCL", str(acl))
+    calc.initialise(k, tau, source_history_length, source_delay, source_target_delay)
     calc.setObservations(source_data, target_data)
     if compute_p:
         measDist = calc.computeSignificance(number_of_surrogates)
