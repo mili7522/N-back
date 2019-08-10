@@ -59,6 +59,7 @@ def computeAIS(k, tau, acl, data, calc, compute_local = False, compute_p = False
     calc.setProperty("tau", str(tau))
     calc.setProperty('DYN_CORR_EXCL', str(acl))
     calc.setProperty( 'BIAS_CORRECTION', 'true' )  # Turns on bias correction for the gaussian estimator. The KSG Estimator is already bias adjusted
+    calc.initialise()
     calc.setObservations(data)
     if compute_p:
         measDist = calc.computeSignificance(number_of_surrogates)
