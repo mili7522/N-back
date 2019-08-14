@@ -1,0 +1,17 @@
+#!/bin/bash
+#PBS -P InfoDynFuncStruct
+#PBS -l select=1:ncpus=1:mem=4gb
+#PBS -l walltime=0:40:00
+#PBS -J 0-492
+#PBS -o Output/stdout/AIS_^array_index^
+#PBS -e Output/stderr/AIS_^array_index^
+# PBS -q scavenger
+
+module load python/3.5.1
+
+cd $PBS_O_WORKDIR
+subject_number=$PBS_ARRAY_INDEX
+experiment_number=3
+logname="Exp$experiment_number-$subject_number-AIS.log"
+# Use -p to calculate p values and -r R for repetitions, where R is an int (saved under new folders)
+python ../runAIS.py $subject_number $experiment_number > Output/stdout/$logname

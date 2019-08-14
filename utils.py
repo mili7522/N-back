@@ -9,7 +9,7 @@ from scipy.signal import butter, detrend, filtfilt
 from scipy.stats import zscore
 
 
-def loadData(filename, path = None, get_params = False, param_file = None, subject_id = None):
+def loadData(filename, path = None, get_params = False, param_file = None, subject_id = None, return_all_subjects = False):
     """
     Loads the data (and the corresponding history length and delay if get_params is True)
 
@@ -19,6 +19,7 @@ def loadData(filename, path = None, get_params = False, param_file = None, subje
         get_params -- If True, load the history length and delay corresponding to the file (found by maximising AIS)
         param_file -- File containing the params for history length and delay
         subject_id -- Used for the GRP data. Selects which subject's data to load
+        return_all_subjects -- If True, the GRP data is returned as a 3D array of (regions, time points, subjects)
 
     Output:
         df -- Dataframe of regions of interest (ROI) vs time points
@@ -40,11 +41,13 @@ def loadData(filename, path = None, get_params = False, param_file = None, subje
             # The GRP data is organised as 375 regions x 1940 time points x 100 subjects
             data = loadmat(filename)
             data = data['data_grp_full']
+            if return_all_subjects:
+                return data
             data = data[:,:,subject_id]
             df = pd.DataFrame(data)
     if get_params:
         assert param_file is not None, "Need to provide the parameters file to load it"
-        param_df = pd.read_csv(param_file, header = None)
+        param_df = pd.read_csv(param_file)
         return df, param_df
     return df
 
@@ -58,7 +61,7 @@ def getAllFiles(path = 'Data', extension = '.tsv'):
             files.append(os.path.join(path, f))
     return sorted(files)
 
-def plotHeatmap(df, divergent = False, divergent_cmap = 'RdBu', vmax = None, vmin = None):
+def plotHeatmap(df, divergent = False, divergent_cmap = 'RdBu', vmax = None, vmin = None, show_plot = True):
     if divergent:
         vmax = vmax or np.abs(df).max()
         vmin = vmin or -vmax
@@ -68,9 +71,10 @@ def plotHeatmap(df, divergent = False, divergent_cmap = 'RdBu', vmax = None, vmi
     plt.xlabel('Time')
     plt.ylabel('Region')
     plt.colorbar(im, fraction=0.046, pad=0.04)
-    plt.show()
+    if show_plot:
+        plt.show()
 
-def plotTimeseries(data, region_idx = None):
+def plotTimeseries(data, region_idx = None, show_plot = True):
     """
     Arguments:
         data -- Numpy array of 1D or 2D or pandas DataFrame. If 2D, it is in the shape (regions, time)
@@ -90,7 +94,8 @@ def plotTimeseries(data, region_idx = None):
     plt.xlabel('Time')
     if y.ndim == 2:
         plt.legend(labels = region_idx)
-    plt.show()
+    if show_plot:
+        plt.show()
 
 def preprocess(data, sampling_interval = None, sampling_rate = None, apply_global_mean_removal = True, trim_start = 0, trim_end = 0, **filter_params):
     """
@@ -199,17 +204,13 @@ def getMaxIdx2D(array_2d, print_ = True):
         print("Max: {:.4f} at {}".format(max_val, max_idx))
     return max_idx
 
-def startCalc(measure = 'ais', estimator = 'ksg'):
+def startCalc(measure = 'ais', estimator = 'ksg', jar_location = "infodynamics.jar"):
     """
     Start the JIDT calculator
     """
     if not jpype.isJVMStarted():
-        if os.path.exists("../noradrenaline/bin/infodynamics.jar"):
-            jarLocation = "../noradrenaline/bin/infodynamics.jar"
-        else:
-            jarLocation = "/home/mike/Downloads/JIDT/infodynamics.jar"
         # Start the JVM (add the "-Xmx" option with say 1024M if you get crashes due to not enough memory space)
-        jpype.startJVM(jpype.getDefaultJVMPath(), "-Xmx2048M", "-ea", "-Djava.class.path=" + jarLocation)
+        jpype.startJVM(jpype.getDefaultJVMPath(), "-Xmx2048M", "-ea", "-Djava.class.path=" + jar_location, convertStrings = True)
 
     if measure.lower() == 'ais':
         if estimator.lower() == 'ksg':
@@ -245,6 +246,13 @@ def getTopIdx1D(array_1d, top_no = 10):
 
 def basename(file):
     return os.path.splitext(os.path.basename(file))[0]
+
+def update_progress(progress, end_text = ""):
+    barLength = 50
+    progress = min(max(progress, 0), 1)
+    block = int(round(barLength * progress))
+    text = "\rPercent: [{0}] {1:.2f}%{2}".format( "#" * block + "-" * (barLength - block), progress * 100, end_text)
+    print(text, end = '', flush = True)
 
 if __name__ == '__main__':
     df_HCP = loadData('100307.tsv', path = '../Data')
