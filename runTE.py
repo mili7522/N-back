@@ -216,7 +216,11 @@ class TEResultSaver:
         if compress:  # The .npz files are kept, and npy files are removed
             os.remove(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}.npy".format(self.save_folder, self.filename)))
             os.remove(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}_p.npy".format(self.save_folder, self.filename)))
-        os.remove(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(self.save_folder, self.filename)))
+        try:
+            os.remove(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(self.save_folder, self.filename)))
+        except FileNotFoundError:  # Don't need to remove if it was never saved
+            pass
+
         # The file containing the next (source_idx, target_idx) is deleted after the final results are saved
 
     def save_raw(self, results, p_values, compress):
