@@ -253,8 +253,8 @@ def test_for_one_pair(filename = '100307.tsv', path = '../Data', source_region =
     utils.plotTimeseries(result)
 
 
-def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynFuncStruct/Mike/N-back/", GRP = False,
-        compute_p = True, compress = False, set_k_to_0 = False, calc_type = 'ksg', **preprocessing_params):
+def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynFuncStruct/Mike/N-back/", save_every = 20,
+        GRP = False, compute_p = True, compress = False, set_k_to_0 = False, calc_type = 'ksg', **preprocessing_params):
     """
     Run TE calculation for a particular subject. Parameters are loaded from file, based on the AIS calculation, or set
     to 0 if set_k_to_0 is True
@@ -265,6 +265,7 @@ def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynF
         extension -- File extension of the data (eg. .csv, .tsv, .mat)
         save_folder -- Subfolder of the 'Results' directory in which to save the local AIS values, parameters and p_values
         raw_save_root -- Location to save the raw local TE values (as a npz or npy file)
+        save_every -- None, or Int giving the number of regions to calculate before saving the current state of the results
         GRP -- Set to True if processing the GRP data, which is one array of dimension (region, timepoints, subject)
         compute_p -- If True, computes the p value of the returned AIS
         calc_type -- The type of estimator to use for the JIDT calculator - 'gaussian' or 'ksg'
@@ -317,7 +318,8 @@ def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynF
     calc = startCalc(calc_type)
 
     # Do the calculations
-    results, p_values = getLocalsForAllRegionPairs(data, param_df, calc, compute_p, saver = saver, results = results,
+    results, p_values = getLocalsForAllRegionPairs(data, param_df, calc, compute_p, saver = saver, 
+                                                   save_every = save_every, results = results,
                                                    p_values = p_values, idx_values = idx_values)
 
     # Save the final results
@@ -359,6 +361,7 @@ def run_experiment(experiment_number, i, local_test = False, compute_p = False, 
     common_params['raw_save_root'] = '/media/mike/Files/Data and Results/N-back' if local_test else "/scratch/InfoDynFuncStruct/Mike/N-back/"
     common_params['compress'] = False  # Decides whether npz or npy file type is used to save the raw local TE values
     common_params['compute_p'] = compute_p
+    common_params['save_every'] = None
 
     def get_save_folder(folder_name):
         """
