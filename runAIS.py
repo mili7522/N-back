@@ -40,7 +40,7 @@ def startCalc(calc_type = 'ksg'):
     return calc
 
 
-def computeAIS(k, tau, acl, data, calc, compute_local = False, compute_p = False, number_of_surrogates = 1000,
+def computeAIS(k, tau, dce, data, calc, compute_local = False, compute_p = False, number_of_surrogates = 1000,
                print_surrogate = False):
     """
     Performs a calculation of Active Information Storage using JIDT
@@ -48,7 +48,7 @@ def computeAIS(k, tau, acl, data, calc, compute_local = False, compute_p = False
     Arguments:
         k -- History length - JIDT parameter
         tau -- Delay - JIDT parameter
-        acl -- Autocorrelation length, used to set the dynamic correlation exclusion property
+        dce -- Dynamic correlation exclusion value - JIDT parameter
         data -- 1D numpy array containing the time series data
         calc -- The JIDT calculator
         compute_local -- If True, a timeseries of local AIS is returned instead of the average
@@ -61,7 +61,7 @@ def computeAIS(k, tau, acl, data, calc, compute_local = False, compute_p = False
     """
     calc.setProperty( "k_HISTORY", str(k) )
     calc.setProperty( "tau", str(tau) )
-    calc.setProperty( "DYN_CORR_EXCL", str(acl) )
+    calc.setProperty( "DYN_CORR_EXCL", str(dce) )
     calc.setProperty( "BIAS_CORRECTION", "true" )  # Turns on bias correction for the gaussian estimator. The KSG Estimator is already bias adjusted
     calc.initialise()  # Need to initialise after properties are set
     calc.setObservations(data)
@@ -79,7 +79,7 @@ def computeAIS(k, tau, acl, data, calc, compute_local = False, compute_p = False
         return calc.computeAverageLocalOfObservations(), p
 
 
-def runAllParameters(data, calc, history_lengths, delays, acl = None):
+def runAllParameters(data, calc, history_lengths, delays, dce = None):
     """
     Calculates the bias corrected average AIS values for all combinations of history_length and delay parameters
 
@@ -88,18 +88,17 @@ def runAllParameters(data, calc, history_lengths, delays, acl = None):
         calc -- The JIDT calculator
         history_lengths -- Range of possible history length values
         delays -- Range of possible delay values
-        acl -- Autocorrelation length, used to set the dynamic correlation exclusion property, or None.
-               If None, it is calculated from the data
+        dce -- Dynamic correlation exclusion value, or None. If None, it is calculated from the data
 
     Returns:
         ais_values -- Numpy array of shape (history_lengths, delays), giving the AIS for each parameter combination
     """
-    if acl is None:
-        acl = utils.acl(data)
+    if dce is None:
+        dce = utils.getDCE(data)
     ais_values = np.zeros((len(history_lengths), len(delays)))
     for i, history_length in enumerate(history_lengths):
         for j, delay in enumerate(delays):                   
-            ais_values[i, j], _ = computeAIS(history_length, delay, acl, data, calc, compute_local = False, compute_p = False)
+            ais_values[i, j], _ = computeAIS(history_length, delay, dce, data, calc, compute_local = False, compute_p = False)
     return ais_values
 
 
@@ -118,7 +117,7 @@ def getLocalsForRegion(data, calc, region_idx = None, history_lengths = None, de
         history_lengths -- Range of possible history length values, or None
         delays -- Range of possible delay values, or None
         parameters -- The parameters to use for the AIS calculation, given in a list-like format as
-                      (history_length, delay) or (history_length, delay, acl)
+                      (history_length, delay) or (history_length, delay, dynamic_correlation_exclusion)
         region_idx -- The index of the region under consideration, as an Int, or None
         print_max_idx -- If True, prints the maximum average AIS value and the corresponding indices for the
                          parameters. The first value gives the maximum index in the range of possible history
@@ -129,7 +128,7 @@ def getLocalsForRegion(data, calc, region_idx = None, history_lengths = None, de
         result -- Numpy array of local AIS values
         ais_values -- Numpy array of shape (history_lengths, delays), giving the AIS for each parameter combination
                       None is returned instead if the parameters were provided instead of determined by maximising AIS
-        parameters -- The parameters used for the AIS calculation, given as (history_length, delay, acl)
+        parameters -- The parameters used for the AIS calculation, given as (history_length, delay, DCE)
         p -- p value of the computed local AIS. Returned if compute_p is true, else None is returned
     """
     # If the 2D (containing all the regions), then region_idx should be provided and allow the timeseries of the
@@ -141,8 +140,8 @@ def getLocalsForRegion(data, calc, region_idx = None, history_lengths = None, de
     if parameters is None:
         assert history_lengths is not None and delays is not None
 
-        acl = utils.acl(data)  # Get the autocorrelation length of the timeseries data
-        ais_values = runAllParameters(data, calc, history_lengths, delays, acl)
+        dce = utils.getDCE(data)  # Get the DCE values using the autocorrelation length of the timeseries data
+        ais_values = runAllParameters(data, calc, history_lengths, delays, dce)
 
         # Find the index of the maximum bias corrected average AIS
         max_idx = utils.getMaxIdx2D(ais_values, print_ = print_max_idx)
@@ -150,19 +149,19 @@ def getLocalsForRegion(data, calc, region_idx = None, history_lengths = None, de
         history_length = history_lengths[max_idx[0]]
         delay = delays[max_idx[1]]
 
-        parameters = (history_length, delay, acl)
+        parameters = (history_length, delay, dce)
     else:
-        # If the autocorrelation length of the data was not provided, then calculate it
+        # If the DCE value for the data was not provided, then calculate it
         if len(parameters) == 2:
-            acl = utils.acl(data)
+            dce = utils.getDCE(data)
             history_length, delay = parameters
-            parameters = (history_length, delay, acl)
+            parameters = (history_length, delay, dce)
         else:
-            history_length, delay, acl = parameters
+            history_length, delay, dce = parameters
         ais_values = None
     
     # Obtain the local AIS values using the parameters corresponding to the maximum bias corrected average AIS
-    result, p = computeAIS(history_length, delay, acl, data, calc, compute_local = True, compute_p = compute_p)
+    result, p = computeAIS(history_length, delay, dce, data, calc, compute_local = True, compute_p = compute_p)
     return result, ais_values, parameters, p
 
 
@@ -184,7 +183,7 @@ def getLocalsForAllRegions(data, calc, history_lengths = None, delays = None, pa
     
     Returns:
         results -- A numpy array of shape (regions, timepoints), containing the local AIS values for each region
-        all_parameters -- A numpy array with three columns, containing the (history_length, delay, acl) of each region
+        all_parameters -- A numpy array with three columns, containing the (history_length, delay, DCE) of each region
         p_values -- A numpy array of all returned p values (or Nones if compute_p is False). Each row corresponds to a region
     """
     regions, timepoints = data.shape
@@ -253,11 +252,11 @@ def getPopulationParameters(data_path, extension, calc, history_lengths, delays,
             data = utils.loadData(files[i])
 
         data = utils.preprocess(data, **preprocessing_params)
-        acls = None  # Just want to calculate the acls once for all the regions, so assign it as None first, and then replace it
+        dces = None  # Just want to calculate the acls once for all the regions, so assign it as None first, and then replace it
         for region in range(regions):
-            if acls is None:
-                acls = utils.acl(data)
-            ais_values[region, i] = runAllParameters(data[region], calc, history_lengths, delays, acls[region])
+            if dces is None:
+                dces = utils.getDCE(data)
+            ais_values[region, i] = runAllParameters(data[region], calc, history_lengths, delays, dces[region])
             
             # Print progress bar
             utils.update_progress((i * regions + region) / (number_of_subjects * regions),
@@ -267,7 +266,7 @@ def getPopulationParameters(data_path, extension, calc, history_lengths, delays,
     mean_ais_values = ais_values.mean(axis = 1)  # Average over the subjects
 
     for region in range(regions):
-        max_idx = utils.getMaxIdx2D(mean_ais_values[region])  # Find the argmax across the averaged AIS values
+        max_idx = utils.getMaxIdx2D(mean_ais_values[region], print_ = False)  # Find the argmax across the averaged AIS values
         history_length = history_lengths[max_idx[0]]
         delay = delays[max_idx[1]]
         parameters[region] = (history_length, delay)
@@ -340,15 +339,15 @@ def run(i, data_path, extension, save_folder, GRP = False, compute_p = True, cal
 
     # Save results
     pd.DataFrame(results).to_csv('Results/{}/AIS/{}_AIS.csv'.format(save_folder, filename), index = None, header = None)
-    params_df = pd.DataFrame(all_parameters, columns = ['k', 'tau', 'acl'])
+    params_df = pd.DataFrame(all_parameters, columns = ['k', 'tau', 'DCE'])
     params_df.to_csv('Results/{}/AIS/params/{}_params.csv'.format(save_folder, filename), index = None)
     pd.DataFrame(p_values).to_csv('Results/{}/AIS/p_values/{}_p.csv'.format(save_folder, filename), index = None, header = None)
 
     print("\nTime taken:", round((time.time() - start_time) / 60, 2), 'min')
-    try:
-        utils.plotHeatmap(results, divergent = True)
-    except:
-        pass
+    # try:
+    #     utils.plotHeatmap(results, divergent = True)
+    # except:
+    #     pass
 
 
 def test_for_one_region(filename = '100307.tsv', path = '../Data', region_idx = 0,

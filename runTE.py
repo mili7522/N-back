@@ -23,7 +23,7 @@ def startCalc(calc_type = 'ksg'):
     return calc
 
 
-def computeTE(k, tau, acl, source_data, target_data, calc, source_history_length = 1,
+def computeTE(k, tau, dce, source_data, target_data, calc, source_history_length = 1,
               source_delay = 1, source_target_delay = 1, compute_local = False,
               compute_p = False, number_of_surrogates = 100, print_surrogate = True):
     """
@@ -32,7 +32,7 @@ def computeTE(k, tau, acl, source_data, target_data, calc, source_history_length
     Arguments:
         k -- History length of target - JIDT parameter
         tau -- Delay between target time points - JIDT parameter
-        acl -- Auto correlation length, used to set the dynamic correlation exclusion property
+        dce -- Auto correlation length, used to set the dynamic correlation exclusion property
         source_data -- 1D Numpy array containing the time series of the source region
         target_data -- 1D Numpy array containing the time series of the target region
         calc -- The JIDT calculator
@@ -47,7 +47,7 @@ def computeTE(k, tau, acl, source_data, target_data, calc, source_history_length
         TE -- Either locals or average, as a float or numpy array
         p -- p value. Returned if compute_p is true, else None is returned
     """
-    calc.setProperty( "DYN_CORR_EXCL", str(acl) )
+    calc.setProperty( "DYN_CORR_EXCL", str(dce) )
     calc.setProperty( "BIAS_CORRECTION", "true" )  # Turns on bias correction for the gaussian estimator. The KSG Estimator is already bias adjusted
     calc.initialise(k, tau, source_history_length, source_delay, source_target_delay)  # Need to initialise after properties are set
     calc.setObservations(source_data, target_data)
@@ -74,15 +74,15 @@ def getLocalsForRegionPair(data, source_idx, target_idx, param_df, calc, compute
         data -- Numpy array. 2d array of shape (region, time). Preprocessing should have already been performed
         source_idx -- The index of the region under consideration, as an Int
         target_idx -- The index of the region under consideration, as an Int
-        param_df -- Pandas DataFrame containing the parameters used for each region, with the columns 'k', 'tau' and 'acl'
-                    (acl is not present if the experiment has set_k_to_0 = True)
+        param_df -- Pandas DataFrame containing the parameters used for each region, with the columns 'k', 'tau' and 'dce'
+                    (dce is not present if the experiment has set_k_to_0 = True)
         calc -- The JIDT calculator
         compute_p -- If True, computes the p value of the returned TE
     
     Returns:
         result -- Numpy array of local TE values
         p -- p value of the computed local TE. Returned if compute_p is true, else None is returned
-        acl -- The auto-correlation length used to set the dynamic correlation exclusion property for
+        dce -- The auto-correlation length used to set the dynamic correlation exclusion property for
                the TE calculation
     """
     # Extract the source and target time series from the full data array
@@ -92,24 +92,21 @@ def getLocalsForRegionPair(data, source_idx, target_idx, param_df, calc, compute
     # Extract the history length and delay parameters from param_df
     history_length, delay = param_df.loc[target_idx, ['k', 'tau']]
 
-    if 'acl' in param_df:
-        acl = max(param_df.loc[source_idx, 'acl'], param_df.loc[target_idx, 'acl'])  # Take the larger value from the source and target
-    else:
-        acl = max(utils.acl(source_data), utils.acl(target_data))  # Calculate the acl if it's not present in param_df
+    dce = utils.getDCE(source_data, data_2 = target_data)
 
-    result, p = computeTE(history_length, delay, acl, source_data, target_data, calc, compute_local = True, compute_p = compute_p)
-    return result, p, acl
+    result, p = computeTE(history_length, delay, dce, source_data, target_data, calc, compute_local = True, compute_p = compute_p)
+    return result, p, dce
 
 
 def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_every = 50, save_every = 20, saver = None,
-                               results = None, p_values = None, idx_values = None):
+                               results = None, p_values = None, dce = None, idx_values = None):
     """
     Calculates the local TE for all pairs of regions, by calling getLocalsForRegionPair
 
     Arguments:
         data -- Numpy array of shape (region, time). Preprocessing should have already been performed
-        param_df -- Pandas DataFrame containing the parameters used for each region, in the columns 'k', 'tau' and 'acl'
-                    (acl is not present if the experiment has set_k_to_0 = True)
+        param_df -- Pandas DataFrame containing the parameters used for each region, in the columns 'k', 'tau' and 'dce'
+                    (dce is not present if the experiment has set_k_to_0 = True)
         calc -- The JIDT calculator
         compute_p -- If True, computes the p value of the returned TE
         print_every -- None, or Int giving the number of regions to calculate before printing an update of the progress
@@ -117,6 +114,7 @@ def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_ev
         saver -- TEResultSaver object, used to save the intermediate results
         results -- Loaded results from previous run, or None
         p_values -- Loaded p_values from previous run, or None
+        dce -- Loaded DCE parameter values from previous run, or None
         idx_values -- Tuple of the last (source_idx, target_idx) of the saved results from previous run, or None
     
     Returns:
@@ -124,6 +122,7 @@ def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_ev
                    The first dimension corresponds to the source region, the second dimension corresponds to the target region
         p_values -- A numpy array of shape (region, region) containing all returned p values (or Nones if compute_p is False).
                     Each row corresponds to a source region, and each column corresponds to a target region
+        dce -- Numpy array containing the DCE parameter values, of shape (source_region, target_region)
     """
     regions, timepoints = data.shape
 
@@ -132,10 +131,12 @@ def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_ev
         starting_source_idx, starting_target_idx = 0, 0
         results = np.zeros((regions, regions, timepoints))
         p_values = np.zeros((regions, regions))
+        np.fill_diagonal(p_values, np.nan)
+        dce = np.zeros((regions, regions), dtype = int)
     else:
         # Continue from where the loaded results left off
         starting_source_idx, starting_target_idx = idx_values
-        assert results is not None and p_values is not None
+        assert results is not None and p_values is not None and dce is not None
 
     # Calculate the local TE for all source / target pairs
     for source_idx in range(starting_source_idx, regions):
@@ -150,14 +151,14 @@ def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_ev
                     utils.update_progress((source_idx * regions + target_idx) / regions ** 2,
                                           end_text = "  {:4} -> {:4}".format(source_idx, target_idx))
 
-                results[source_idx, target_idx], p_values[source_idx, target_idx], _ = getLocalsForRegionPair(data, source_idx, target_idx,
-                                                                                                              param_df, calc, compute_p)
+                results[source_idx, target_idx], p_values[source_idx, target_idx], dce[source_idx, target_idx] = getLocalsForRegionPair(data, source_idx, target_idx,
+                                                                                                                                        param_df, calc, compute_p)
                 
                 # Save intermediate results
                 if save_every is not None and saver is not None and (target_idx % save_every == 0):
-                    saver.save_intermediate_result(results, p_values, (source_idx, target_idx + 1))  # If loaded, start from (source_idx, target_idx + 1)
+                    saver.save_intermediate_result(results, p_values, dce, (source_idx, target_idx + 1))  # If loaded, start from (source_idx, target_idx + 1)
 
-    return results, p_values
+    return results, p_values, dce
 
 
 class TEResultSaver:
@@ -173,21 +174,24 @@ class TEResultSaver:
         self.raw_save_root = raw_save_root
         
         os.makedirs(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values".format(save_folder)), exist_ok = True)
+        os.makedirs(os.path.join(raw_save_root, "Results/{}/TE/raw/dce".format(save_folder)), exist_ok = True)
         os.makedirs("Results/{}/TE/In-Target".format(save_folder), exist_ok = True)
         os.makedirs("Results/{}/TE/Out-Source".format(save_folder), exist_ok = True)
+        os.makedirs("Results/{}/TE/p_values".format(save_folder), exist_ok = True)
+        os.makedirs("Results/{}/TE/params".format(save_folder), exist_ok = True)
     
-    def save_intermediate_result(self, results, p_values, idx_values):
+    def save_intermediate_result(self, results, p_values, dce, idx_values):
         """
         Arguments:
             idx_values -- Tuple of (source_idx, target_idx) for the next source and target idx to be processed
         """
-        self.save_raw(results, p_values, compress = False)  # Don't compress the intermediate files, for faster saving and loading
+        self.save_raw(results, p_values, dce, compress = False)  # Don't compress the intermediate files, for faster saving and loading
         # Write the values of the next (source_idx, target_idx) in a file
         # The presence of this file will indicate that the final results have not be reached. It is deleted after the final results are saved
         with open(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(self.save_folder, self.filename)), 'w') as f:
             f.write(str(idx_values[0]) + "," + str(idx_values[1]))
 
-    def save_final_result(self, results, p_values, padding = ((0,0), (0,0)), compress = False):
+    def save_final_result(self, results, p_values, dce, padding = ((0,0), (0,0)), compress = False):
         """
         Saves the TE results - the raw array of shape (source_region, target_region, time) as well as the averaged local TE
         out of each source region and into each target region
@@ -195,11 +199,12 @@ class TEResultSaver:
         Arguments:
             results -- Numpy array containing the raw TE results, of shape (source_region, target_region, time)
             p_values -- Numpy array containing the p values, of shape (source_region, target_region)
+            dce -- Numpy array containing the DCE parameter values, of shape (source_region, target_region)
             padding -- Tuple of tuples containing the number of spaces to pad the TE results at the start and end of each dimension
                        Follows the requirement specified by np.pad
             compress -- If True, save the raw results as a npz format instead of npy
         """
-        self.save_raw(results, p_values, compress)
+        self.save_raw(results, p_values, dce, compress)
 
         # Take the average across source / target regions, ignoring the diagonals where source = target
         target_te = np.nanmean(results, axis = 0)  # Average across all sources
@@ -211,6 +216,9 @@ class TEResultSaver:
 
         pd.DataFrame(target_te).to_csv('Results/{}/TE/In-Target/{}.csv'.format(self.save_folder, self.filename), index = None, header = None)
         pd.DataFrame(source_te).to_csv('Results/{}/TE/Out-Source/{}.csv'.format(self.save_folder, self.filename), index = None, header = None)
+
+        pd.DataFrame(p_values).to_csv('Results/{}/TE/p_values/{}_p.csv'.format(self.save_folder, self.filename), index = None, header = None)
+        pd.DataFrame(dce).to_csv('Results/{}/TE/params/{}_dce.csv'.format(self.save_folder, self.filename), index = None, header = None)
         
         # Clean up intermediate save files
         if compress:  # The .npz files are kept, and npy files are removed
@@ -223,26 +231,31 @@ class TEResultSaver:
 
         # The file containing the next (source_idx, target_idx) is deleted after the final results are saved
 
-    def save_raw(self, results, p_values, compress):
+    def save_raw(self, results, p_values, dce, compress):
         """
         Saves the raw files
 
         Arguments:
             results -- Numpy array containing the raw TE results, of shape (source_region, target_region, time)
             p_values -- Numpy array containing the p values, of shape (source_region, target_region)
+            dce -- Numpy array containing the DCE parameter values, of shape (source_region, target_region)
             compress -- If True, save the raw results as a npz format instead of npy. Only used when saving the final result
         """
         if compress:
             np.savez_compressed(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}.npz".format(self.save_folder, self.filename)), results = results)
             np.savez_compressed(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}_p.npz".format(self.save_folder, self.filename)), p_values = p_values)
+            np.savez_compressed(os.path.join(self.raw_save_root, "Results/{}/TE/raw/dce/{}_dce.npz".format(self.save_folder, self.filename)), dce = dce)
         else:
             # Save temp file first then rename, in case the process gets killed during the save
             np.save(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_temp.npy".format(self.save_folder, self.filename)), results)
             np.save(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}_temp.npy".format(self.save_folder, self.filename)), p_values)
+            np.save(os.path.join(self.raw_save_root, "Results/{}/TE/raw/dce/{}_temp.npy".format(self.save_folder, self.filename)), dce)
             os.replace(os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}_temp.npy".format(self.save_folder, self.filename)),
                        os.path.join(self.raw_save_root, "Results/{}/TE/raw/{}.npy".format(self.save_folder, self.filename)))
             os.replace(os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}_temp.npy".format(self.save_folder, self.filename)),
                        os.path.join(self.raw_save_root, "Results/{}/TE/raw/p_values/{}_p.npy".format(self.save_folder, self.filename)))
+            os.replace(os.path.join(self.raw_save_root, "Results/{}/TE/raw/dce/{}_temp.npy".format(self.save_folder, self.filename)),
+                       os.path.join(self.raw_save_root, "Results/{}/TE/raw/dce/{}_dce.npy".format(self.save_folder, self.filename)))
 
 
 def test_for_one_pair(filename = '100307.tsv', path = '../Data', source_region = 1, target_region = 0,
@@ -250,10 +263,10 @@ def test_for_one_pair(filename = '100307.tsv', path = '../Data', source_region =
     calc = startCalc(calc_type)
     df, param_df = utils.loadData(filename, path, get_params = True, param_file = param_file)
     data = utils.preprocess(df, sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25)
-    result, p_values, acl = getLocalsForRegionPair(data, source_region, target_region, param_df, calc, compute_p = compute_p)
+    result, p_values, dce = getLocalsForRegionPair(data, source_region, target_region, param_df, calc, compute_p = compute_p)
     if p_values is not None:
         print("p value:", p_values)
-    print('Auto-correlation length:', acl)
+    print('Dynamic correlation exclusion value:', dce)
     utils.plotTimeseries(result)
 
 
@@ -296,13 +309,14 @@ def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynF
         # Load previous results, which are always saved in the uncompressed format
         results = np.load(os.path.join(raw_save_root, "Results/{}/TE/raw/{}.npy".format(save_folder, filename)))
         p_values = np.load(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}_p.npy".format(save_folder, filename)))
+        dce = np.load(os.path.join(raw_save_root, "Results/{}/TE/raw/dce/{}_dce.npy".format(save_folder, filename)))
         with open(os.path.join(raw_save_root, "Results/{}/TE/raw/{}_current_idx.txt".format(save_folder, filename)), 'r') as f:
             idx_values = f.readline()
         idx_values = list(map(int,idx_values.split(',')))
         print("Loading previous results")
         print("Starting from index", idx_values)
     else:
-        results, p_values, idx_values = None, None, None
+        results, p_values, dce, idx_values = None, None, None, None
         # Check both compressed and uncompressed options. If this file exists but the current_idx file doesn't then the
         # final results have already been saved. Exit to avoid running again
         if glob.glob(os.path.join(raw_save_root, "Results/{}/TE/raw/p_values/{}_p.np*".format(save_folder, filename))):
@@ -322,14 +336,14 @@ def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynF
     calc = startCalc(calc_type)
 
     # Do the calculations
-    results, p_values = getLocalsForAllRegionPairs(data, param_df, calc, compute_p, saver = saver, 
-                                                   save_every = save_every, results = results,
-                                                   p_values = p_values, idx_values = idx_values)
+    results, p_values, dce = getLocalsForAllRegionPairs(data, param_df, calc, compute_p, saver = saver, 
+                                                        save_every = save_every, results = results,
+                                                        p_values = p_values, dce = dce, idx_values = idx_values)
 
     # Save the final results
     # Add back the trimmed sections at the start and end of the timeseries by padding with zeros
     padding = ((0,0), (preprocessing_params.get('trim_start', 0), preprocessing_params.get('trim_end', 0)))
-    saver.save_final_result(results, p_values, padding = padding, compress = compress)
+    saver.save_final_result(results, p_values, dce, padding = padding, compress = compress)
     print("\nTime taken:", round((time.time() - start_time) / 60, 2), 'min')
 
 

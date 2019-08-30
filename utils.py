@@ -176,14 +176,21 @@ def acf(data, axis = 1):
     acf_coeffs = np.array(list(map(r, x)))
     return acf_coeffs
 
-def acl(data, axis = 1):
+def getDCE(data, data_2 = None, axis = 1):
     """
-    Calculates the autocorrelation length as expected by the dynamic correlation exclusion parameter in JIDT
+    Calculates the appropriate setting for the JIDT dynamic correlation exclusion parameter, based on the
+    autocorrelation length - 1. The autocorrelation length is calculated from the coefficients of the 
+    autocorrelation function
     """
-    acf_coeffs = acf(data, axis)
-    auto_correlation_lengths = np.ceil( 2 * np.sum( acf_coeffs ** 2, axis = 0) ) - 2  # Always sum over the 0th axis
-    auto_correlation_lengths = auto_correlation_lengths.astype(int)
-    return np.squeeze(auto_correlation_lengths)
+    acf_coeffs_1 = acf(data, axis)
+    if data_2 is None:
+        acf_coeffs_2 = acf_coeffs_1
+    else:
+        assert data.ndim == 1 and data_2.ndim == 1
+        acf_coeffs_2 = acf(data_2, axis)
+    dce = np.ceil( 2 * np.sum( acf_coeffs_1 * acf_coeffs_2, axis = 0) ) - 2  # Always sum over the 0th axis
+    dce = dce.astype(int)
+    return np.squeeze(dce)
 
 def getMaxIdx2D(array_2d, print_ = True):
     """
@@ -262,7 +269,7 @@ if __name__ == '__main__':
         comparison_data = loadmat('../Preprocessing_steps_100307.mat')
         data = preprocess(df_HCP.values, sampling_rate = 1.3)
         print("Close after mean removal?", np.allclose(data.T, comparison_data['data_meanremoval']))
-        print("Close acl after filtering?", np.allclose(acl(data, axis = 1), comparison_data['acl_meanremoval'].ravel()))
+        print("Close acl after filtering?", np.allclose(getDCE(data, axis = 1), comparison_data['acl_meanremoval'].ravel()))
     checkPreprocessing()
     # Load ATX data
     df_ATX = loadData('STX0001-01_results.csv', path = '/media/mike/Files/Data and Results/N-back/Data/ATX_data')

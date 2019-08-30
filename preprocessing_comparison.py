@@ -69,6 +69,7 @@ def acf(data, axis = 1):
     Outputs:
         acf_coeffs -- Numpy array of 1d or 2d. If 2d, it is always of shape (lag, ROI)
     """
+    data = np.atleast_2d(data)
     n = data.shape[axis]
     mean = np.mean(data, axis = axis, keepdims = True)
     var = np.sum((data - mean) ** 2, axis = axis)  # Unscaled variance
@@ -82,9 +83,17 @@ def acf(data, axis = 1):
     acf_coeffs = np.array(list(map(r, x)))
     return acf_coeffs
 
-def acl(data, axis = 1):
-    acf_coeffs = acf(data, axis)
-    return np.ceil( 2 * np.sum( acf_coeffs ** 2, axis = 0) ) - 2  # Always sum over the 0th axis
+
+def acl(data, data_2 = None, axis = 1):
+    acf_coeffs_1 = acf(data, axis)
+    if data_2 is None:
+        acf_coeffs_2 = acf_coeffs_1
+    else:
+        assert data.ndim == 1 and data_2.ndim == 1
+        acf_coeffs_2 = acf(data_2, axis)
+    auto_correlation_lengths = np.ceil( 2 * np.sum( acf_coeffs_1 * acf_coeffs_2, axis = 0) ) - 2  # Always sum over the 0th axis
+    auto_correlation_lengths = auto_correlation_lengths.astype(int)
+    return np.squeeze(auto_correlation_lengths)
 
 # z score
 comparison_autocorr_zscore = comparison_data['autocorr_zscore'].ravel()
@@ -131,3 +140,29 @@ print("Close acl after filtering?", np.allclose(acl_filter, comparison_acl_filte
 comparison_acl_meanremoval = comparison_data['acl_meanremoval'].ravel()
 acl_meanremoval = acl(data_meanremoval, axis = 0 if transpose_data else 1)  # Doing all of it at once
 print("Close acl after filtering?", np.allclose(acl_meanremoval, comparison_acl_meanremoval))
+
+
+###
+# # zscore acl te
+# comparison_acl_zscore_te = comparison_data['acl_zscore_te']
+# acl_zscore_te = np.zeros((333,333))
+# for i in range(333):
+#     print(i)
+#     for j in range(333):
+#         acl_zscore_te[i,j] = acl(data_zscore[i], data_2 = data_zscore[j], axis = 0 if transpose_data else 1)  # Doing all of it at once
+# print("Close acl after zscoring - te version?", np.allclose(acl_zscore_te, comparison_acl_zscore_te))
+
+# # detrend acl
+# comparison_acl_detrend_te = comparison_data['acl_detrend_te']
+# acl_detrend = acl(data_detrend, axis = 0 if transpose_data else 1)  # Doing all of it at once
+# print("Close acl after detrending?", np.allclose(acl_detrend, comparison_acl_detrend_te))
+
+# # filter acl
+# comparison_acl_filter_te = comparison_data['acl_filter_te']
+# acl_filter = acl(data_filter, axis = 0 if transpose_data else 1)  # Doing all of it at once
+# print("Close acl after filtering?", np.allclose(acl_filter, comparison_acl_filter_te))
+
+# # filter mean removal
+# comparison_acl_meanremoval_te = comparison_data['acl_meanremoval_te']
+# acl_meanremoval = acl(data_meanremoval, axis = 0 if transpose_data else 1)  # Doing all of it at once
+# print("Close acl after filtering?", np.allclose(acl_meanremoval, comparison_acl_meanremoval_te))
