@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.io import loadmat
-from scipy.signal import butter, detrend, filtfilt
+from scipy.signal import butter, detrend, filtfilt, lfilter
 from scipy.stats import zscore
 
 
@@ -97,7 +97,8 @@ def plotTimeseries(data, region_idx = None, show_plot = True):
     if show_plot:
         plt.show()
 
-def preprocess(data, sampling_interval = None, sampling_rate = None, apply_global_mean_removal = True, trim_start = 0, trim_end = 0, **filter_params):
+def preprocess(data, sampling_interval = None, sampling_rate = None, mean_processing_type = 'removal',
+               trim_start = 0, trim_end = 0, **filter_params):
     """
     Applies preprocessing to the fMRI data, following a pipeline that will make it suitable for AIS / TE analysis
 
@@ -105,7 +106,8 @@ def preprocess(data, sampling_interval = None, sampling_rate = None, apply_globa
         data -- Numpy array or pandas DataFrame of shape (regions, time)
         sampling_interval -- None, or the interval between samples in seconds
         sampling_rate -- None, or the number of samples per second
-        apply_global_mean_removal -- If True, global mean removal will be applied to the data
+        mean_processing_type -- 'removal', 'regression' or None. If 'removal', global mean removal is applied to the data.
+                                If 'regression', global mean regression will be applied to the data. Else nothing is applied.
         trim_start -- Number of timesteps to cut off the start of the data to counteract the effect of filtering
         trim_end -- Number of timesteps to cut off at the end of the data to counteract the effect of filtering
         filter_params -- Other filter parameters (fcuthigh and order)
@@ -118,16 +120,22 @@ def preprocess(data, sampling_interval = None, sampling_rate = None, apply_globa
         data = data.values
     data = zscore(data, axis = 1, ddof = 1)
     data = detrend(data, axis = 1)
-    data = high_pass_filter(data, sampling_interval, sampling_rate, **filter_params)
-    if apply_global_mean_removal:
+    data = apply_filter(data, sampling_interval, sampling_rate, **filter_params)
+    if mean_processing_type == 'removal':
         data = data - np.mean(data, axis = 0, keepdims = True)
+    elif mean_processing_type == 'regression':
+        G = np.mean(data, axis = 0, keepdims = True)  # Shape of G is (1, time)
+        betas = np.linalg.lstsq(G.T, data.T, rcond = None)[0]  # Shape of betas is (1, regions)
+        data = data - np.dot(betas.T, G)
+
     # Trim start and end
     data = data[:, trim_start:]
     if trim_end > 0:
         data = data[:, :-trim_end]
     return data
 
-def high_pass_filter(data, sampling_interval = None, sampling_rate = None, fcuthigh = 0.01, order = 3):
+def apply_filter(data, sampling_interval = None, sampling_rate = None, fcutlow = 0.01, 
+                 fcuthigh = None, order = 3, use_filtfilt = True):
     """
     Returns the data after applying a high pass butterworth filter using the filtfilt function
 
@@ -135,8 +143,10 @@ def high_pass_filter(data, sampling_interval = None, sampling_rate = None, fcuth
         data -- Numpy array in the shape (ROI, time)
         sampling_interval -- Seconds per sample
         sampling_rate -- Samples per second, eg. 1.3 samples per second for HCP data
-        fcuthigh -- Cutoff frequency (Hz)
+        fcutlow -- Cutoff frequency (Hz) for the high pass filter, or None to ignore
+        fcuthigh -- Cutoff frequency (Hz) for the low pass filter, or None to ignore
         order -- Order of the filter
+        use_filtfilt -- If True, then use filtfilt, otherwise use lfilter (single direction)
 
     Output:
         data -- Numpy array containing the data after filtering is performed
@@ -144,11 +154,24 @@ def high_pass_filter(data, sampling_interval = None, sampling_rate = None, fcuth
     # Setting up the filter
     assert sampling_interval is not None or sampling_rate is not None
     sampling_rate = sampling_rate or 1 / sampling_interval
-    Wn = fcuthigh / ( 1/2 * sampling_rate )
-    [b, a] = butter( order, Wn, 'high')
+    if fcutlow is not None and fcuthigh is not None:
+        Wn = np.array([fcutlow, fcuthigh]) / ( 1/2 * sampling_rate )
+        filter_type = 'bandpass'
+    elif fcutlow is not None:
+        Wn = fcutlow / ( 1/2 * sampling_rate )
+        filter_type = 'high'
+    elif fcuthigh is not None:
+        Wn = fcuthigh / ( 1/2 * sampling_rate )
+        filter_type = 'low'
+    else:
+        raise ValueError("At least one of fcutlow or fcuthigh should be not None")
+    [b, a] = butter( order, Wn, filter_type)
 
     # Applying the filter
-    data = filtfilt( b, a, data, axis = 1, padtype = 'odd', padlen = 3 * ( max(len(a),len(b)) - 1) )
+    if use_filtfilt:
+        data = filtfilt( b, a, data, axis = 1, padtype = 'odd', padlen = 3 * ( max(len(a),len(b)) - 1) )
+    else:
+        data = lfilter( b, a, data, axis = 1)
     return data
 
 def acf(data, axis = 1):
@@ -267,9 +290,14 @@ if __name__ == '__main__':
         # Checking comparisons with matlab preprocessing
         from scipy.io import loadmat
         comparison_data = loadmat('../Preprocessing_steps_100307.mat')
-        data = preprocess(df_HCP.values, sampling_rate = 1.3)
-        print("Close after mean removal?", np.allclose(data.T, comparison_data['data_meanremoval']))
-        print("Close acl after filtering?", np.allclose(getDCE(data, axis = 1), comparison_data['acl_meanremoval'].ravel()))
+        mean_processing_type = 'regression'
+        data = preprocess(df_HCP.values, sampling_rate = 1.3, mean_processing_type = mean_processing_type, use_filtfilt =  False)
+        if mean_processing_type == 'removal':
+            print("Close after mean removal?", np.allclose(data.T, comparison_data['data_meanremoval']))
+            print("Close acl after filtering?", np.allclose(getDCE(data, axis = 1), comparison_data['acl_meanremoval'].ravel()))
+        elif mean_processing_type == 'regression':
+            print("Close after mean regression?", np.allclose(data.T, comparison_data['data_meanregression']))
+            print("Close acl after filtering?", np.allclose(getDCE(data, axis = 1), comparison_data['acl_meanregression'].ravel()))
     checkPreprocessing()
     # Load ATX data
     df_ATX = loadData('STX0001-01_results.csv', path = '/media/mike/Files/Data and Results/N-back/Data/ATX_data')
