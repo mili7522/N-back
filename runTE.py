@@ -25,7 +25,7 @@ def startCalc(calc_type = 'ksg'):
 
 def computeTE(k, tau, dce, source_data, target_data, calc, source_history_length = 1,
               source_delay = 1, source_target_delay = 1, compute_local = False,
-              compute_p = False, number_of_surrogates = 100, print_surrogate = True):
+              compute_p = False, number_of_surrogates = 100, print_surrogate = False):
     """
     Performs a calculation of Transfer Entropy using JIDT
 
@@ -65,7 +65,7 @@ def computeTE(k, tau, dce, source_data, target_data, calc, source_history_length
         return calc.computeAverageLocalOfObservations(), p
 
 
-def getLocalsForRegionPair(data, source_idx, target_idx, param_df, calc, compute_p = False):
+def getLocalsForRegionPair(data, source_idx, target_idx, param_df, calc, compute_p = False, use_source_embedding = False):
     """
     Calculates the local TE for a particular source region - target region pair
     The parameters for target history length and target delay are passed in by param_df
@@ -78,6 +78,8 @@ def getLocalsForRegionPair(data, source_idx, target_idx, param_df, calc, compute
                     (dce is not present if the experiment has set_k_to_0 = True)
         calc -- The JIDT calculator
         compute_p -- If True, computes the p value of the returned TE
+        use_source_embedding -- If True, load up the values for history length and delay of the source from the AIS
+                                calculations. Otherwise the source_history_length and source_delay parameters are set to 1
     
     Returns:
         result -- Numpy array of local TE values
@@ -91,15 +93,20 @@ def getLocalsForRegionPair(data, source_idx, target_idx, param_df, calc, compute
     
     # Extract the history length and delay parameters from param_df
     history_length, delay = param_df.loc[target_idx, ['k', 'tau']]
+    if use_source_embedding:
+        source_history_length, source_delay = param_df.loc[source_idx, ['k', 'tau']]
+    else:
+        source_history_length, source_delay = 1, 1
 
     dce = utils.getDCE(source_data, data_2 = target_data)
 
-    result, p = computeTE(history_length, delay, dce, source_data, target_data, calc, compute_local = True, compute_p = compute_p)
+    result, p = computeTE(history_length, delay, dce, source_data, target_data, calc, source_history_length, source_delay,
+                          compute_local = True, compute_p = compute_p)
     return result, p, dce
 
 
-def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_every = 50, save_every = 20, saver = None,
-                               results = None, p_values = None, dce = None, idx_values = None):
+def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, use_source_embedding = False, print_every = 50,
+                               save_every = 20, saver = None, results = None, p_values = None, dce = None, idx_values = None):
     """
     Calculates the local TE for all pairs of regions, by calling getLocalsForRegionPair
 
@@ -109,6 +116,8 @@ def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_ev
                     (dce is not present if the experiment has set_k_to_0 = True)
         calc -- The JIDT calculator
         compute_p -- If True, computes the p value of the returned TE
+        use_source_embedding -- If True, load up the values for history length and delay of the source from the AIS
+                                calculations. Otherwise the source_history_length and source_delay parameters are set to 1
         print_every -- None, or Int giving the number of regions to calculate before printing an update of the progress
         save_every -- None, or Int giving the number of regions to calculate before saving the current state of the results
         saver -- TEResultSaver object, used to save the intermediate results
@@ -152,7 +161,8 @@ def getLocalsForAllRegionPairs(data, param_df, calc, compute_p = False, print_ev
                                           end_text = "  {:4} -> {:4}".format(source_idx, target_idx))
 
                 results[source_idx, target_idx], p_values[source_idx, target_idx], dce[source_idx, target_idx] = getLocalsForRegionPair(data, source_idx, target_idx,
-                                                                                                                                        param_df, calc, compute_p)
+                                                                                                                                        param_df, calc, compute_p,
+                                                                                                                                        use_source_embedding)
                 
                 # Save intermediate results
                 if save_every is not None and saver is not None and (target_idx % save_every == 0):
@@ -262,7 +272,7 @@ def test_for_one_pair(filename = '100307.tsv', path = '../Data', source_region =
                       param_file = 'Results/HCP/AIS/params/100307_params.csv', calc_type = 'ksg', compute_p = False):
     calc = startCalc(calc_type)
     df, param_df = utils.loadData(filename, path, get_params = True, param_file = param_file)
-    data = utils.preprocess(df, sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25)
+    data = utils.preprocess(df, sampling_rate = 1.3, mean_processing_type = 'removal', trim_start = 50, trim_end = 25)
     result, p_values, dce = getLocalsForRegionPair(data, source_region, target_region, param_df, calc, compute_p = compute_p)
     if p_values is not None:
         print("p value:", p_values)
@@ -271,7 +281,8 @@ def test_for_one_pair(filename = '100307.tsv', path = '../Data', source_region =
 
 
 def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynFuncStruct/Mike/N-back/", save_every = 20,
-        GRP = False, compute_p = True, compress = False, set_k_to_0 = False, calc_type = 'ksg', **preprocessing_params):
+        GRP = False, compute_p = True, compress = False, set_k_to_0 = False, calc_type = 'ksg', use_source_embedding = False,
+        **preprocessing_params):
     """
     Run TE calculation for a particular subject. Parameters are loaded from file, based on the AIS calculation, or set
     to 0 if set_k_to_0 is True
@@ -285,11 +296,14 @@ def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynF
         save_every -- None, or Int giving the number of regions to calculate before saving the current state of the results
         GRP -- Set to True if processing the GRP data, which is one array of dimension (region, timepoints, subject)
         compute_p -- If True, computes the p value of the returned AIS
-        calc_type -- The type of estimator to use for the JIDT calculator - 'gaussian' or 'ksg'
         compress -- If True, the raw TE values are saved as a compressed npz file instead of an npy file
         set_k_to_0 -- If True, skip loading of k and l parameters, instead initialising the DataFrame to zeros
+        calc_type -- The type of estimator to use for the JIDT calculator - 'gaussian' or 'ksg'
+        use_source_embedding -- If True, load up the values for history length and delay of the source from the AIS
+                                calculations. Otherwise the source_history_length and source_delay parameters are set to 1
         preprocessing_params -- Parameters passed to utils.preprocess for preprocessing the time series data.
-                                Includes sampling_rate / sampling_interval, apply_global_mean_removal, trim_start, trim_end
+                                Includes sampling_rate / sampling_interval, mean_processing_type, trim_start, trim_end,
+                                fcutlow, fcuthigh, use_filtfilt
     """
     start_time = time.time()
     files = utils.getAllFiles(data_path, extension)
@@ -338,7 +352,8 @@ def run(i, data_path, extension, save_folder, raw_save_root = "/scratch/InfoDynF
     # Do the calculations
     results, p_values, dce = getLocalsForAllRegionPairs(data, param_df, calc, compute_p, saver = saver, 
                                                         save_every = save_every, results = results,
-                                                        p_values = p_values, dce = dce, idx_values = idx_values)
+                                                        p_values = p_values, dce = dce, idx_values = idx_values,
+                                                        use_source_embedding = use_source_embedding)
 
     # Save the final results
     # Add back the trimmed sections at the start and end of the timeseries by padding with zeros
@@ -362,7 +377,7 @@ def run_experiment(experiment_number, i, local_test = False, compute_p = False, 
                       Repetitions are saved in their own folder with the number as a suffix
     """
     # Get parameters which are common across a particular experiment type
-    if experiment_number in [0,2,3,4,5,6]:  # HCP experiments
+    if experiment_number in [0,2,3,4,5,6,7,8]:  # HCP experiments
         common_params = {
                          'data_path': '../Data' if local_test else 'Data/HCP',
                          'extension': '.tsv',
@@ -393,32 +408,40 @@ def run_experiment(experiment_number, i, local_test = False, compute_p = False, 
     # Run experiment
     print("Running experiment:", experiment_number)
     if experiment_number == 0:    # HCP
-        run(i, save_folder = get_save_folder('HCP'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, **common_params)
 
     elif experiment_number == 1:  # ATX
-        run(i, save_folder = get_save_folder('ATX'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('ATX'), mean_processing_type = 'removal',
             trim_start = 25, trim_end = 25, **common_params)
 
     elif experiment_number == 2:  # HCP -- no global mean removal
-        run(i, save_folder = get_save_folder('HCP_no-mean-removal'), apply_global_mean_removal = False,
+        run(i, save_folder = get_save_folder('HCP_no-mean-removal'), mean_processing_type = None,
             trim_start = 50, trim_end = 25, **common_params)
         
     elif experiment_number == 3:  # HCP - using linear gaussian estimator
-        run(i, save_folder = get_save_folder('HCP_gaussian'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP_gaussian'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, calc_type = 'gaussian', **common_params)
     
     elif experiment_number == 4:  # HCP -- time-lagged MI (gaussian)
-        run(i, save_folder = get_save_folder('HCP_MI-gaussian'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP_MI-gaussian'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, set_k_to_0 = True, calc_type = 'gaussian', **common_params)
 
     elif experiment_number == 5:  # HCP -- time-lagged MI (KSG)
-        run(i, save_folder = get_save_folder('HCP_MI-KSG'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP_MI-KSG'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, set_k_to_0 = True, **common_params)
 
     elif experiment_number == 6:  # HCP - using population parameters
-        run(i, save_folder = get_save_folder('HCP_pop-param'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP_pop-param'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, **common_params)
+    
+    elif experiment_number == 7:  # HCP - using lfilter
+        run(i, save_folder = get_save_folder('HCP_filter'), mean_processing_type = 'removal',
+            trim_start = 50, trim_end = 25, use_filtfilt = False, use_source_embedding = True, **common_params)
+            
+    elif experiment_number == 8:  # HCP - using lfilter and mean regression
+        run(i, save_folder = get_save_folder('HCP_filter_meanregression'), mean_processing_type = 'regression',
+            trim_start = 50, trim_end = 25, use_filtfilt = False, use_source_embedding = True, **common_params)
 
     else:
         raise Exception("Experiment not defined")

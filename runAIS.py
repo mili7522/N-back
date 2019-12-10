@@ -223,7 +223,8 @@ def getPopulationParameters(data_path, extension, calc, history_lengths, delays,
         history_lengths -- Range of possible history length values
         delays -- Range of possible delay values
         preprocessing_params -- Parameters passed to utils.preprocess for preprocessing the time series data.
-                                Includes sampling_rate / sampling_interval, apply_global_mean_removal, trim_start, trim_end
+                                Includes sampling_rate / sampling_interval, mean_processing_type, trim_start, trim_end,
+                                fcutlow, fcuthigh, use_filtfilt
     
     Returns:
         parameters -- A numpy array with two columns, containing the (history_length, delay) of each region
@@ -293,7 +294,8 @@ def run(i, data_path, extension, save_folder, GRP = False, compute_p = True, cal
         history_lengths -- Range of possible history length values
         delays -- Range of possible delay values
         preprocessing_params -- Parameters passed to utils.preprocess for preprocessing the time series data.
-                                Includes sampling_rate / sampling_interval, apply_global_mean_removal, trim_start, trim_end
+                                Includes sampling_rate / sampling_interval, mean_processing_type, trim_start, trim_end,
+                                fcutlow, fcuthigh, use_filtfilt
     """
     start_time = time.time()
     files = utils.getAllFiles(data_path, extension)
@@ -355,7 +357,7 @@ def test_for_one_region(filename = '100307.tsv', path = '../Data', region_idx = 
                         calc_type = 'ksg', compute_p = False):
     calc = startCalc(calc_type)
     df = utils.loadData(filename, path)
-    data = utils.preprocess(df, sampling_rate = 1.3, apply_global_mean_removal = True, trim_start = 50, trim_end = 25)
+    data = utils.preprocess(df, sampling_rate = 1.3, mean_processing_type = 'removal', trim_start = 50, trim_end = 25)
     result, ais_values, parameters, p_values = getLocalsForRegion(data, calc, region_idx, history_lengths, delays, compute_p = compute_p)
     if p_values is not None:
         print("p value:", p_values)
@@ -381,7 +383,7 @@ def run_experiment(experiment_number, i, local_test = False, compute_p = False, 
                       Repetitions are saved in their own folder with the number as a suffix
     """
     # Get parameters which are common across a particular experiment type
-    if experiment_number in [0,2,3,6]:  # HCP experiments
+    if experiment_number in [0,2,3,6,7,8]:  # HCP experiments
         common_params = {
                          'data_path': '../Data' if local_test else 'Data/HCP',
                          'extension': '.tsv',
@@ -409,25 +411,33 @@ def run_experiment(experiment_number, i, local_test = False, compute_p = False, 
     # Run experiment
     print("Running experiment:", experiment_number)
     if experiment_number == 0:    # HCP
-        run(i, save_folder = get_save_folder('HCP'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, **common_params)
 
     elif experiment_number == 1:  # ATX
-        run(i, save_folder = get_save_folder('ATX'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('ATX'), mean_processing_type = 'removal',
             trim_start = 25, trim_end = 25, **common_params)
     
     elif experiment_number == 2:  # HCP -- no global mean removal
-        run(i, save_folder = get_save_folder('HCP_no-mean-removal'), apply_global_mean_removal = False,
+        run(i, save_folder = get_save_folder('HCP_no-mean-removal'), mean_processing_type = None,
             trim_start = 50, trim_end = 25, **common_params)
 
     elif experiment_number == 3:  # HCP - using linear gaussian estimator
-        run(i, save_folder = get_save_folder('HCP_gaussian'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP_gaussian'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, calc_type = 'gaussian', **common_params)
     
     elif experiment_number == 6:  # HCP - using population parameters
-        run(i, save_folder = get_save_folder('HCP_pop-param'), apply_global_mean_removal = True,
+        run(i, save_folder = get_save_folder('HCP_pop-param'), mean_processing_type = 'removal',
             trim_start = 50, trim_end = 25, use_population_parameters = True, **common_params)
 
+    elif experiment_number == 7:  # HCP - using lfilter
+        run(i, save_folder = get_save_folder('HCP_filter'), mean_processing_type = 'removal',
+            trim_start = 50, trim_end = 25, use_filtfilt = False, **common_params)
+            
+    elif experiment_number == 8:  # HCP - using lfilter and mean regression
+        run(i, save_folder = get_save_folder('HCP_filter_meanregression'), mean_processing_type = 'regression',
+            trim_start = 50, trim_end = 25, use_filtfilt = False, **common_params)
+            
     else:
         raise Exception("Experiment not defined")
 
